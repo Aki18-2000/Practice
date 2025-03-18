@@ -19,33 +19,7 @@ resource "aws_subnet" "public1" {
   }
 }
 
-resource "aws_subnet" "public2" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.0.2.0/24"
-  map_public_ip_on_launch = true
-  tags = {
-    Name = "public-subnet-2"
-  }
-}
 
-# Create Private Subnets
-resource "aws_subnet" "private1" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.0.3.0/24"
-  availability_zone = data.aws_availability_zones.available.names[0]
-  tags = {
-    Name = "private-subnet-1"
-  }
-}
-
-resource "aws_subnet" "private2" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.0.4.0/24"
-  availability_zone = data.aws_availability_zones.available.names[1] 
-  tags = {
-    Name = "private-subnet-2"
-  }
-}
 
 # Create Internet Gateway
 resource "aws_internet_gateway" "igw" {
@@ -55,22 +29,6 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-
-# Create NAT Gateway
-resource "aws_eip" "nat_eip" {
-  vpc = true
-  tags = {
-    Name = "nat-eip"
-  }
-}
-
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat_eip.id
-  subnet_id     = aws_subnet.public1.id
-   tags = {
-    Name = "main-nat"
-  }
-}
 
 # Create Route Tables
 resource "aws_route_table" "public" {
@@ -85,17 +43,7 @@ resource "aws_route_table" "public" {
   }
 }
 
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
-  }
-   tags = {
-    Name = "private-route-table"
-  }
-}
 
 # Associate Route Tables with Subnets
 resource "aws_route_table_association" "public1" {
@@ -103,20 +51,11 @@ resource "aws_route_table_association" "public1" {
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_route_table_association" "public2" {
-  subnet_id      = aws_subnet.public2.id
-  route_table_id = aws_route_table.public.id
-}
 
-resource "aws_route_table_association" "private1" {
-  subnet_id      = aws_subnet.private1.id
-  route_table_id = aws_route_table.private.id
-}
 
-resource "aws_route_table_association" "private2" {
-  subnet_id      = aws_subnet.private2.id
-  route_table_id = aws_route_table.private.id
-}
+
+
+
 
 # Create Security Groups
 resource "aws_security_group" "web_sg" {
@@ -160,43 +99,4 @@ resource "aws_instance" "web1" {
   tags = {
     Name = "web-server-1"
   }
-
-  user_data = <<-EOF
-              #!/bin/bash
-              apt update -y
-              apt install -y apache2 php libapache2-mod-php php-mysql
-              systemctl start apache2
-              systemctl enable apache2
-
-              echo "<?php
-              \$servername = '${aws_db_instance.app_db.endpoint}';
-              \$username = 'admin';
-              \$password = 'password123';
-              \$dbname = 'mydb';
-
-              // Create connection
-              \$conn = new mysqli(\$servername, \$username, \$password, \$dbname);
-
-              // Check connection
-              if (\$conn->connect_error) {
-                die('Connection failed: ' . \$conn->connect_error);
-              }
-
-              \$sql = 'SELECT id, name FROM users';
-              \$result = \$conn->query(\$sql);
-
-              if (\$result->num_rows > 0) {
-                while(\$row = \$result->fetch_assoc()) {
-                  echo 'id: ' . \$row['id']. ' - Name: ' . \$row['name']. '<br>';
-                }
-              } else {
-                echo '0 results';
-              }
-              \$conn->close();
-              ?>" > /var/www/html/index.php
-              EOF
-}
-
-
-
 
