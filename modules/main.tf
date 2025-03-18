@@ -197,26 +197,6 @@ resource "aws_instance" "web1" {
               EOF
 }
 
-output "rds_endpoint" {
-  value = aws_db_instance.app_db.endpoint
-}
 
-variable "instance_type" {
-  description = "EC2 instance type"
-  default     = "t3.micro"
-}
 
-variable "db_instance_class" {
-  description = "RDS instance class"
-  default     = "db.t3.micro"
-}
 
-variable "db_engine" {
-  description = "Database engine version"
-  default     = "mysql"
-}
-
-variable "db_allocated_storage" {
-  description = "Allocated storage for RDS instance"
-  default     = 20
-}
