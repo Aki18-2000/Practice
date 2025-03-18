@@ -90,13 +90,13 @@ resource "aws_security_group" "web_sg" {
 
 # Create EC2 Instances for Web Servers with Database Connection Example
 resource "aws_instance" "web1" {
-  ami           = "ami-053a45fff0a704a47"
-  instance_type = "t2.micro"
-  #availability_zone    = "us-east-1a" 
-  subnet_id     = aws_subnet.public1.id
-  security_groups = [aws_security_group.web_sg.id]
+  ami              = "ami-053a45fff0a704a47"
+  instance_type    = "t2.micro"
+  subnet_id        = aws_subnet.public1.id
+  security_groups  = [aws_security_group.web_sg.id]
 
   tags = {
     Name = "web-server-1"
   }
+}
 
