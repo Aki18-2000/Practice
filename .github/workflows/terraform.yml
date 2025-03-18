@@ -40,7 +40,7 @@ jobs:
           git lfs track "modules/.terraform/providers/registry.terraform.io/hashicorp/aws/5.87.0/linux_amd64/terraform-provider-aws_v5.87.0_x5"
           git add .gitattributes  # Make sure to add the .gitattributes file that git-lfs uses
 
-      # Step 4: Commit Changes (If Needed)
+      # Step 4: Commit Changes 
       - name: Commit Changes (if any)
         run: |
           git config --global user.name 'github-actions[bot]'
