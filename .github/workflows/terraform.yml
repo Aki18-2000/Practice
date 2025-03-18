@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout Code
       - name: Checkout Code
         uses: actions/checkout@v3
         with:
@@ -37,11 +38,13 @@ jobs:
       # Step 3: Track Large Files with Git LFS
       - name: Track Large Files with Git LFS
         run: |
+          git lfs install
           git lfs track "modules/.terraform/providers/registry.terraform.io/hashicorp/aws/5.87.0/linux_amd64/terraform-provider-aws_v5.87.0_x5"
           git add .gitattributes  # Make sure to add the .gitattributes file that git-lfs uses
+          git commit -m "Track large Terraform provider binary with Git LFS" || echo "No changes to commit"
 
-      # Step 4: Commit Changes (If Needed)
-      - name: Commit Changes (if any)
+      # Step 4: Commit Changes (if any)
+      - name: Commit Changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
@@ -83,7 +86,6 @@ jobs:
           output-file: README.md
           output-method: inject
           git-push: true
-          #config-file: .terraform-docs.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -99,7 +101,7 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@v2.9.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          header: "Terraform Documentation "
+          header: "Terraform Documentation"
           path: "./modules/README.md"
 
       # Step 12: Apply Terraform Changes on PR Merge
