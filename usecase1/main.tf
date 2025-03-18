@@ -56,7 +56,7 @@ resource "aws_internet_gateway" "igw" {
 }
 
 
-# Create NAT Gateway
+# Create NAT Gatewa
 resource "aws_eip" "nat_eip" {
   vpc = true
   tags = {
