@@ -1,113 +1,320 @@
-name: Deploy Terraform
+data "aws_availability_zones" "available" {}
 
-on:
-  workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Branch to deploy'
-        required: true
-        default: 'main'
-        
-  pull_request:
-    branches:
-      - main
 
-permissions:
-  id-token: write
-  contents: write
-  pull-requests: write
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
 
-jobs:
-  terraform:
-    runs-on: ubuntu-latest
+   tags = {
+    Name = "main-vpc"
+  }
+}
 
-    steps:
-      # Step 1: Checkout Code
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref || github.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+# Create Public Subnets
+resource "aws_subnet" "public1" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "public-subnet-1"
+  }
+}
 
-      # Step 2: Install Git LFS
-      - name: Install Git LFS
-        run: |
-          git lfs install
+resource "aws_subnet" "public2" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.2.0/24"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "public-subnet-2"
+  }
+}
 
-      # Step 3: Track Large Files with Git LFS
-      - name: Track Large Files with Git LFS
-        run: |
-          git lfs install
-          git lfs track "modules/.terraform/providers/registry.terraform.io/hashicorp/aws/5.87.0/linux_amd64/terraform-provider-aws_v5.87.0_x5"
-          git add .gitattributes  # Make sure to add the .gitattributes file that git-lfs uses
-          git commit -m "Track large Terraform provider binary with Git LFS" || echo "No changes to commit"
+# Create Private Subnets
+resource "aws_subnet" "private1" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.3.0/24"
+  availability_zone = data.aws_availability_zones.available.names[0]
+  tags = {
+    Name = "private-subnet-1"
+  }
+}
 
-      # Step 4: Commit Changes (if any)
-      - name: Commit Changes
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git commit -m "Add Terraform provider binary to Git LFS" || echo "No changes to commit"
+resource "aws_subnet" "private2" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.4.0/24"
+  availability_zone = data.aws_availability_zones.available.names[1] 
+  tags = {
+    Name = "private-subnet-2"
+  }
+}
 
-      # Step 5: Push Changes to GitHub
-      - name: Push Changes
-        run: |
-          git push origin ${{ github.event.pull_request.head.ref || github.ref }}
+# Create Internet Gateway
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+  tags = {
+    Name = "main-igw"
+  }
+}
 
-      # Step 6: Configure AWS Credentials
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::510278866235:role/NewOIDC
-          aws-region: us-east-1
 
-      # Step 7: Setup Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
-        with:
-          terraform_version: 1.0.0
+# Create NAT Gateway
+resource "aws_eip" "nat_eip" {
+  vpc = true
+  tags = {
+    Name = "nat-eip"
+  }
+}
 
-      # Step 8: Terraform Init & Plan
-      - name: Terraform Init
-        run: terraform init -reconfigure
-        working-directory: ./modules
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.public1.id
+   tags = {
+    Name = "main-nat"
+  }
+}
 
-      - name: Terraform Plan
-        run: terraform plan -lock=false
-        working-directory: ./modules
+# Create Route Tables
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
 
-      # Step 9: Generate Terraform Docs Markdown
-      - name: Generate Markdown with Terraform Docs
-        if: github.event_name == 'push' || github.event_name == 'pull_request'
-        uses: terraform-docs/gh-actions@v1.3.0
-        with:
-          working-dir: ./modules
-          output-file: README.md
-          output-method: inject
-          git-push: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+   tags = {
+    Name = "public-route-table"
+  }
+}
 
-      # Step 10: Configure Git to Commit Generated Docs
-      - name: Configure Git
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
 
-      # Step 11: Add README.md as PR Comment (Using Sticky Comment)
-      - name: Posting README.md as PR Comment
-        if: github.event_name == 'pull_request'
-        uses: marocchino/sticky-pull-request-comment@v2.9.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          header: "Terraform Documentation"
-          path: "./modules/README.md"
+  route {
+    cidr_block = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
+  }
+   tags = {
+    Name = "private-route-table"
+  }
+}
 
-      # Step 12: Apply Terraform Changes on PR Merge
-      - name: Applying Terraform after PR Merge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          cd ./modules
-          terraform init
-          terraform apply -auto-approve -lock=false
+# Associate Route Tables with Subnets
+resource "aws_route_table_association" "public1" {
+  subnet_id      = aws_subnet.public1.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public2" {
+  subnet_id      = aws_subnet.public2.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "private1" {
+  subnet_id      = aws_subnet.private1.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "private2" {
+  subnet_id      = aws_subnet.private2.id
+  route_table_id = aws_route_table.private.id
+}
+
+# Create Security Groups
+resource "aws_security_group" "web_sg" {
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+   ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] 
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+   tags = {
+    Name = "web-sg"
+  }
+}
+
+resource "aws_security_group" "db_sg" {
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = {
+    Name = "db-sg"
+  }
+}
+
+# Create EC2 Instances for Web Servers with Database Connection Example
+resource "aws_instance" "web1" {
+  ami           = "ami-053a45fff0a704a47"
+  instance_type = "t2.micro"
+  #availability_zone    = "us-east-1a" 
+  subnet_id     = aws_subnet.public1.id
+  security_groups = [aws_security_group.web_sg.id]
+
+  tags = {
+    Name = "web-server-1"
+  }
+
+  user_data = <<-EOF
+              #!/bin/bash
+              apt update -y
+              apt install -y apache2 php libapache2-mod-php php-mysql
+              systemctl start apache2
+              systemctl enable apache2
+
+              echo "<?php
+              \$servername = '${aws_db_instance.app_db.endpoint}';
+              \$username = 'admin';
+              \$password = 'password123';
+              \$dbname = 'mydb';
+
+              // Create connection
+              \$conn = new mysqli(\$servername, \$username, \$password, \$dbname);
+
+              // Check connection
+              if (\$conn->connect_error) {
+                die('Connection failed: ' . \$conn->connect_error);
+              }
+
+              \$sql = 'SELECT id, name FROM users';
+              \$result = \$conn->query(\$sql);
+
+              if (\$result->num_rows > 0) {
+                while(\$row = \$result->fetch_assoc()) {
+                  echo 'id: ' . \$row['id']. ' - Name: ' . \$row['name']. '<br>';
+                }
+              } else {
+                echo '0 results';
+              }
+              \$conn->close();
+              ?>" > /var/www/html/index.php
+              EOF
+}
+
+resource "aws_instance" "web2" {
+  ami           = "ami-053a45fff0a704a47"
+  instance_type = "t2.micro"
+  #availability_zone    = "us-east-1a" 
+  subnet_id     = aws_subnet.public2.id
+  security_groups = [aws_security_group.web_sg.id]
+
+  tags = {
+    Name = "web-server-2"
+  }
+
+  user_data = <<-EOF
+              #!/bin/bash
+              apt update -y
+              apt install -y apache2 php libapache2-mod-php php-mysql
+              systemctl start apache2
+              systemctl enable apache2
+
+              echo "<?php
+              \$servername = '${aws_db_instance.app_db.endpoint}';
+              \$username = 'admin';
+              \$password = 'password123';
+              \$dbname = 'mydb';
+
+              // Create connection
+              \$conn = new mysqli(\$servername, \$username, \$password, \$dbname);
+
+              // Check connection
+              if (\$conn->connect_error) {
+                die('Connection failed: ' . \$conn->connect_error);
+              }
+
+              \$sql = 'SELECT id, name FROM users';
+              \$result = \$conn->query(\$sql);
+
+              if (\$result->num_rows > 0) {
+                while(\$row = \$result->fetch_assoc()) {
+                  echo 'id: ' . \$row['id']. ' - Name: ' . \$row['name']. '<br>';
+                }
+              } else {
+                echo '0 results';
+              }
+              \$conn->close();
+              ?>" > /var/www/html/index.php
+              EOF
+}
+
+resource "aws_db_subnet_group" "default" {
+  name       = "main1"
+  subnet_ids = [aws_subnet.private1.id, aws_subnet.private2.id]
+}
+
+# Create RDS MySQL Instance
+resource "aws_db_instance" "app_db" {
+  identifier = "my-rds-instance"
+  allocated_storage    = var.db_allocated_storage
+  instance_class       = var.db_instance_class
+  engine               = var.db_engine
+  username             = "admin"   
+  password             = "password123" 
+  skip_final_snapshot  = true
+  db_subnet_group_name = aws_db_subnet_group.default.name
+  multi_az               = true
+  
+
+
+  tags = {
+    Name        = "app-db"
+      }
+}
+
+output "rds_endpoint" {
+  value = aws_db_instance.app_db.endpoint
+}
+
+variable "instance_type" {
+  description = "EC2 instance type"
+  default     = "t3.micro"
+}
+
+variable "db_instance_class" {
+  description = "RDS instance class"
+  default     = "db.t3.micro"
+}
+
+variable "db_engine" {
+  description = "Database engine version"
+  default     = "mysql"
+}
+
+variable "db_allocated_storage" {
+  description = "Allocated storage for RDS instance"
+  default     = 20
+}
