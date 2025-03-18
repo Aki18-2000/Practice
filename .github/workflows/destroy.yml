@@ -1,0 +1,65 @@
+name: Deploy Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: true
+        default: 'main'
+
+        
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 2: Install Git LFS
+      - name: Install Git LFS
+        run: |
+          git lfs install
+
+      
+
+      # Step 6: Configure AWS Credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::510278866235:role/NewOIDC
+          aws-region: us-east-1
+
+      # Step 7: Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+
+      # Step 8: Terraform Init & Plan
+      - name: Terraform Init
+        run: terraform init -reconfigure
+        working-directory: ./usecase1
+
+      
+
+      # Step 12: Apply Terraform Changes on PR Merge
+      - name: Applying Terraform after PR Merge
+        run: |
+          cd ./usecase1
+          terraform init
+          terraform destroy -auto-approve -lock=false
